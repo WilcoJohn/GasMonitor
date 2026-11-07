@@ -342,6 +342,25 @@ void setup()
   if (!plotMode) printHelp();
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ============================================================================ loop()
 void loop()
 {
@@ -357,4 +376,5 @@ void loop()
   }
   handleSerial();                                // 4. USB commands
   report(now);                                   // 5. dashboard / plotter
+  delay(2500);
 }
