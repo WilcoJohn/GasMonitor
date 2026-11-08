@@ -38,7 +38,7 @@ namespace Cfg {
   constexpr uint8_t PIN_H2   = A0;
   constexpr uint8_t PIN_CH4  = A1;
   constexpr uint8_t PIN_CO   = A2;
-  constexpr uint8_t PIN_DHT  = 52;
+  constexpr uint8_t PIN_DHT  = 52;                // digital pin
   constexpr int8_t  PIN_BUZZER      = -1;         // free digital pin = buzzer that sounds while any alarm is active (-1 = none)
   constexpr int8_t  PIN_ALARM_RELAY = -1;         // free digital pin = relay/lamp output, ON while any alarm is active
 
@@ -47,8 +47,8 @@ namespace Cfg {
 
 
   // ------------------------------------------------------------------ electrical
-  constexpr float VREF            = 5.0f;         // ADC reference of the Mega
-  constexpr float SENSOR_SUPPLY_V = 5.0f;         // voltage on the MEMS boards' supply: MEASURE IT with a multimeter!
+  constexpr float VREF            = 5.01f;         // ADC reference of the Mega
+  constexpr float SENSOR_SUPPLY_V = 5.01f;         // voltage on the MEMS boards' supply: MEASURE IT with a multimeter!
                                                   // (it can also be edited later on the "Supply Vc" row of each MEMS page)
 
 

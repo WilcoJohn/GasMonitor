@@ -227,7 +227,7 @@ private:
   float _zero{0.0f}, _span{1.0f};
   float adjust(float c) const { const float v = (c - _zero) * _span; return v < 0.0f ? 0.0f : v; }
 
-  static bool tempPlausible(float t) { return t > -40.0f && t < 100.0f && t != 0.0f; }
+  static bool tempPlausible(float t) { return t > -40.0f && t < 100.0f; }
 
   bool startInit(uint32_t now)
   {

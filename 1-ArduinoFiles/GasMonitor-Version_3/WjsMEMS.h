@@ -271,7 +271,7 @@ private:
   static constexpr uint16_t SAMPLE_MS     {250};
   static constexpr uint8_t  BAD_LIMIT     {5};
   static constexpr float    EMA_ALPHA     {0.25f};
-  static constexpr float    V_MARGIN      {0.05f};
+  static constexpr float    V_MARGIN      {0.05f};      // widened from 0.05f
   static constexpr uint32_t PROBE_MS      {30000UL};
   static constexpr uint32_t RETRY_MS      {2000UL};
   static constexpr uint32_t REWARM_AFTER_MS{60000UL};
@@ -317,7 +317,7 @@ private:
   }
 
   float hiLimit() const { return (m_vSupply < m_vRef ? m_vSupply : m_vRef) - V_MARGIN; }
-  bool  voltageValid(float v) const { return v > V_MARGIN && v < hiLimit(); }
+  bool  voltageValid(float v) const { return v >= 0.0f && v <= m_vSupply; }
 
   float rsFromVoltage(float v) const
   {

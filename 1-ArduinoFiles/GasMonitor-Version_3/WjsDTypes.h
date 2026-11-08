@@ -125,7 +125,7 @@ inline bool analogPinFloating(uint8_t pin, float adcSteps) {
   analogRead(pin);                          // discard: lets the ADC sample-and-hold settle
   const int a = analogRead(pin);
   pinMode(pin, INPUT);
-  return a >= int(adcSteps * 0.975f);
+  return a >= int(adcSteps * 0.999f);
 }
 
 inline uint8_t crc8(const uint8_t* d, uint8_t n) {

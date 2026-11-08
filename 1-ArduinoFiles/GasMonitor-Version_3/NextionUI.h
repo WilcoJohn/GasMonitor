@@ -60,6 +60,53 @@ public:
 
   void begin(unsigned long baud) { _nex.begin(baud); }
 
+  // ================================================================ status + event log on the USB serial port
+  /** Where the event log is printed (normally &Serial). nullptr = silent. */
+  void setLog(Print* p) { _log = p; }
+  /** Event log on/off. Switch it off while the Serial Plotter mode is active (the plotter cannot read text). */
+  void setLogEnabled(bool on) { _logOn = on; }
+  bool logEnabled() const { return _logOn; }
+
+  /**
+    One line that says how the screen side is doing: page showing, time since the display last sent something,
+    counters of button presses, APPLY results, read errors and boxes written, and the last message shown.
+    Never blocks.
+    probe = true ALSO asks the display "which page are you showing?" (get dp). That proves the wiring and the baud
+    rate, but it waits for the answer, so with NO display connected it blocks for about a second. On demand only.
+  */
+  void printStatus(Print& out, bool probe = false)
+  {
+    const uint32_t now = millis();
+    out.print(F("[NEX] page=")); out.print(pageName()); out.print('('); out.print(_page); out.print(F(") contact="));
+    if (_lastContactMs == 0) out.print(F("none yet (needs a touch or a page change)"));
+    else { out.print((now - _lastContactMs) / 1000UL); out.print(F("s ago")); }
+    out.print(F(" | page-changes=")); out.print(_pageChanges);
+    out.print(F(" | touches: apply=")); out.print(_nApply);
+    out.print(F(" reload="));   out.print(_nReload);
+    out.print(F(" zero="));     out.print(_nZero);
+    out.print(F(" defaults=")); out.print(_nDefaults);
+    out.print(F(" | apply ok=")); out.print(_applyOk);
+    out.print(F(" fail="));       out.print(_applyFail);
+    out.print(F(" read-errors=")); out.print(_readErrors);
+    out.print(F(" | boxes-written=")); out.print(_writes);
+    out.print(F(" | last message: ")); out.println(_lastMsg[0] ? _lastMsg : "-");
+
+    if (!probe) return;
+    const uint32_t t0 = millis();
+    const uint32_t v = _nex.readNumber("dp");            // 'dp' = the page number the display is showing
+    const uint32_t dt = millis() - t0;
+    out.print(F("[NEX] display probe: "));
+    if (v == 777777UL)
+      out.println(F("NO ANSWER - check TX/RX crossed, common GND, display 5 V, baud=115200 (Program.s and NEX_BAUD), bkcmd=0"));
+    else
+    {
+      _lastContactMs = millis();
+      out.print(F("answered, display is on page ")); out.print(v); out.print(F(" (")); out.print(dt); out.print(F(" ms)"));
+      if (v != _page) out.print(F("  <- differs from the page the Arduino expects: keyboard open, or a Preinitialize code is wrong"));
+      out.println();
+    }
+  }
+
   /** Call every loop(): listens for touches (may call a trigger function) and refreshes the visible page. */
   void service(uint32_t now)
   {
@@ -71,6 +118,8 @@ public:
     {
       _page = uint8_t(pg);
       _cycleIdx = 0; _fillIdx = 0; _armed = 0; _msgUntilMs = 0;
+      ++_pageChanges; _lastContactMs = now;
+      char b[28]; snprintf(b, sizeof(b), "page -> %s (%u)", pageName(), _page); note(b);
     }
 
     if (_msgUntilMs && now > _msgUntilMs) _msgUntilMs = 0;
@@ -83,21 +132,30 @@ public:
   /** trigger 1: APPLY & SAVE for the sensor on the page that is showing. */
   void onApply()
   {
-    GasChannel* c = currentChannel(); if (!c) return;
+    ++_nApply; _lastContactMs = millis();
+    triggerNote(Cfg::T_APPLY, "APPLY & SAVE");
+    GasChannel* c = currentChannel(); if (!c) { note("  ignored: this is not a sensor page"); return; }
     const uint32_t now = millis();
     const uint8_t n = c->paramCount();
     float typed[SLOTS];
-    char path[32];
+    char path[32], b[64];
 
     for (uint8_t i = 0; i < n; ++i)                    // step 1: read + validate ALL rows first
     {
       snprintf(path, sizeof(path), "%s.tV%u.txt", pageName(), i);
       const String s = _nex.readStr(path);
       ParamInfo p; c->paramInfo(i, p);
-      if (s == "ERROR") { say("Screen did not answer - try again", now); return; }
+      if (s == "ERROR")
+      {
+        ++_readErrors; ++_applyFail;
+        snprintf(b, sizeof(b), "  APPLY failed: display did not answer (row %u)", i); note(b);
+        say("Screen did not answer - try again", now); return;
+      }
       if (!Wjs::parseFloat(s.c_str(), typed[i]))
       {
+        ++_applyFail;
         char lab[14]; Wjs::copyFlash(lab, sizeof(lab), p.label);
+        snprintf(b, sizeof(b), "  APPLY failed: row %u %s is not a number: '%s'", i, lab, s.c_str()); note(b);
         char m[40]; snprintf(m, sizeof(m), "%s: not a number", lab); say(m, now);
         return;                                        // nothing was changed
       }
@@ -105,9 +163,18 @@ public:
 
     uint8_t changed = 0;                               // step 2: apply only the rows you edited
     for (uint8_t i = 0; i < n; ++i)
-      if (typed[i] != _filled[i]) { c->setParam(i, typed[i]); ++changed; }
+      if (typed[i] != _filled[i])
+      {
+        ParamInfo p; c->paramInfo(i, p);
+        char lab[14], o[14], nw[14]; Wjs::copyFlash(lab, sizeof(lab), p.label);
+        Wjs::fmtFloat(o, sizeof(o), _filled[i], p.decimals); Wjs::fmtFloat(nw, sizeof(nw), typed[i], p.decimals);
+        snprintf(b, sizeof(b), "  row %u %s: %s -> %s", i, lab, o, nw); note(b);
+        c->setParam(i, typed[i]); ++changed;
+      }
 
     if (changed) c->save();                            // step 3: one EEPROM block per sensor
+    ++_applyOk;
+    snprintf(b, sizeof(b), "APPLY %s: %u changed%s", pageName(), changed, changed ? ", saved to EEPROM" : ""); note(b);
     char m[48];
     if (!c->configOk())  snprintf(m, sizeof(m), "Saved, but 20mA value must be > 4mA value!");
     else if (changed)    snprintf(m, sizeof(m), "Saved (%u changed)", changed);
@@ -117,11 +184,19 @@ public:
   }
 
   /** trigger 2: put the stored values back on the screen (throws away unsaved typing). */
-  void onReload() { if (!currentChannel()) return; _fillIdx = 0; say("Values reloaded", millis()); }
+  void onReload()
+  {
+    ++_nReload; _lastContactMs = millis();
+    triggerNote(Cfg::T_RELOAD, "RELOAD");
+    if (!currentChannel()) return;
+    _fillIdx = 0; say("Values reloaded", millis());
+  }
 
   /** trigger 3: ZERO. Press twice within 5 s. Re-zeroes a MEMS sensor in CLEAN AIR. */
   void onZero()
   {
+    ++_nZero; _lastContactMs = millis();
+    triggerNote(Cfg::T_ZERO, "ZERO");
     GasChannel* c = currentChannel(); if (!c) return;
     const uint32_t now = millis();
     if (!confirmed(1, now)) { say("Clean air? Press ZERO again", now); return; }
@@ -132,6 +207,8 @@ public:
   /** trigger 4: DEFAULTS. Press twice within 5 s. Restores factory constants (R0 is kept). */
   void onDefaults()
   {
+    ++_nDefaults; _lastContactMs = millis();
+    triggerNote(Cfg::T_DEFAULTS, "DEFAULTS");
     GasChannel* c = currentChannel(); if (!c) return;
     const uint32_t now = millis();
     if (!confirmed(2, now)) { say("Restore defaults? Press again", now); return; }
@@ -155,6 +232,13 @@ private:
   uint32_t _msgUntilMs{0};
   bool     _msgPending{false};
 
+  // status / event log
+  Print*   _log{nullptr};
+  bool     _logOn{true};
+  uint32_t _writes{0}, _lastContactMs{0};
+  uint16_t _pageChanges{0}, _nApply{0}, _nReload{0}, _nZero{0}, _nDefaults{0}, _applyOk{0}, _applyFail{0}, _readErrors{0};
+  char     _lastMsg[48]{0};                // last message shown on the settings page (kept after it expires)
+
   // ------------------------------------------------------------------ helpers
   const char* pageName() const
   {
@@ -167,8 +251,21 @@ private:
   void say(const char* s, uint32_t now)
   {
     strncpy(_msg, s, sizeof(_msg) - 1); _msg[sizeof(_msg) - 1] = '\0';
+    strncpy(_lastMsg, _msg, sizeof(_lastMsg) - 1); _lastMsg[sizeof(_lastMsg) - 1] = '\0';
     _msgUntilMs = now + Cfg::MESSAGE_MS;
     _msgPending = true;                                // shown on the very next pass, not at the next refresh
+    char b[64]; snprintf(b, sizeof(b), "  message: %s", _msg); note(b);
+  }
+
+  /** Prints one event line to the USB serial port (only when logging is on). */
+  void note(const char* text)
+  {
+    if (_log && _logOn) { _log->print(F("[NEX] ")); _log->println(text); }
+  }
+
+  void triggerNote(uint8_t id, const char* name)
+  {
+    char b[40]; snprintf(b, sizeof(b), "trigger %u %s on %s", id, name, pageName()); note(b);
   }
 
   bool confirmed(uint8_t what, uint32_t now)
@@ -180,11 +277,11 @@ private:
 
   void setTxt(const char* comp, const char* text)
   {
-    char p[34]; snprintf(p, sizeof(p), "%s.%s.txt", pageName(), comp); _nex.writeStr(p, text);
+    char p[34]; snprintf(p, sizeof(p), "%s.%s.txt", pageName(), comp); _nex.writeStr(p, text); ++_writes;
   }
   void setCol(const char* comp, uint16_t color)
   {
-    char p[34]; snprintf(p, sizeof(p), "%s.%s.bco", pageName(), comp); _nex.writeNum(p, color);
+    char p[34]; snprintf(p, sizeof(p), "%s.%s.bco", pageName(), comp); _nex.writeNum(p, color); ++_writes;
   }
 
   static void chip(const GasChannel& c, char* txt, uint8_t size, uint16_t& color)

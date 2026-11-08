@@ -6,9 +6,7 @@ int output_length{ 8 };
 
 
 //              Address     c0             k0
-WjsGP8600 wjs_DAC{0x5E,
-0.999279359,
-77.62140976
+WjsGP8600 wjs_DAC{0x58
 };
 // to calibration values set the c0 = 1, k0 = 0
 
@@ -26,7 +24,7 @@ void loop() {
     Serial.print(TheoreticalOutVal_mA[idx]);
     Serial.println(" mA");
     wjs_DAC.setmAOutput(TheoreticalOutVal_mA[idx]);
-    delay(20000);
+    delay(14000);
   }
 } 
 
