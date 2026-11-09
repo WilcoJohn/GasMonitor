@@ -69,6 +69,9 @@
 #include <Wire.h>
 #include <EEPROM.h>
 #include <EasyNextionLibrary.h>
+
+
+
 #include "AppConfig.h"
 #include "WjsMEMS.h"
 #include "WjsH2S.h"
